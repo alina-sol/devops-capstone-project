@@ -1,0 +1,1 @@
+Create an issue template for your project's GitHub repository. Ensure the template includes the components listed below. You may want to copy, paste, and then edit this text because it also contains the correct markdown syntax you will need for the template.
