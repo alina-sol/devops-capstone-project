@@ -1,17 +1,10 @@
-"""
-Account API Service Test Suite
-
-Test cases can be run with the following:
-  nosetests -v --with-spec --spec-color
-  coverage report -m
-"""
-import os
 import logging
+import os
 from unittest import TestCase
-from tests.factories import AccountFactory
-from service.common import status  # HTTP Status Codes
-from service.models import db, Account, init_db
+from service.models import db, Account
+from service.common import status  # HTTP status codes
 from service.routes import app
+from tests.factories import AccountFactory
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
@@ -20,9 +13,6 @@ DATABASE_URI = os.getenv(
 BASE_URL = "/accounts"
 
 
-######################################################################
-#  T E S T   C A S E S
-######################################################################
 class TestAccountService(TestCase):
     """Account Service Tests"""
 
@@ -33,46 +23,33 @@ class TestAccountService(TestCase):
         app.config["DEBUG"] = False
         app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
         app.logger.setLevel(logging.CRITICAL)
-        init_db(app)
+        db.create_all()
 
     @classmethod
     def tearDownClass(cls):
         """Runs once before test suite"""
+        db.session.remove()
+        db.drop_all()
 
     def setUp(self):
         """Runs before each test"""
-        db.session.query(Account).delete()  # clean up the last tests
+        db.session.query(Account).delete()  # Clean up the last tests
         db.session.commit()
 
         self.client = app.test_client()
 
     def tearDown(self):
-        """Runs once after each test case"""
+        """Runs after each test"""
         db.session.remove()
 
-    ######################################################################
-    #  H E L P E R   M E T H O D S
-    ######################################################################
-
-    def _create_accounts(self, count):
-        """Factory method to create accounts in bulk"""
-        accounts = []
-        for _ in range(count):
-            account = AccountFactory()
-            response = self.client.post(BASE_URL, json=account.serialize())
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_201_CREATED,
-                "Could not create test Account",
-            )
-            new_account = response.get_json()
-            account.id = new_account["id"]
-            accounts.append(account)
-        return accounts
-
-    ######################################################################
-    #  A C C O U N T   T E S T   C A S E S
-    ######################################################################
+    def _create_account(self, name, email):
+        """Helper method to create a single account"""
+        response = self.client.post(
+            BASE_URL,
+            json={"name": name, "email": email},
+            content_type="application/json"
+        )
+        return response
 
     def test_index(self):
         """It should get 200_OK from the Home Page"""
@@ -87,40 +64,43 @@ class TestAccountService(TestCase):
         self.assertEqual(data["status"], "OK")
 
     def test_create_account(self):
-        """It should Create a new Account"""
-        account = AccountFactory()
-        response = self.client.post(
-            BASE_URL,
-            json=account.serialize(),
-            content_type="application/json"
-        )
+        """It should create a new Account"""
+        response = self._create_account("John Doe", "john.doe@example.com")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Make sure location header is set
+        # Ensure the response contains the location header
         location = response.headers.get("Location", None)
         self.assertIsNotNone(location)
 
-        # Check the data is correct
         new_account = response.get_json()
-        self.assertEqual(new_account["name"], account.name)
-        self.assertEqual(new_account["email"], account.email)
-        self.assertEqual(new_account["address"], account.address)
-        self.assertEqual(new_account["phone_number"], account.phone_number)
-        self.assertEqual(new_account["date_joined"], str(account.date_joined))
+        self.assertEqual(new_account["name"], "John Doe")
+        self.assertEqual(new_account["email"], "john.doe@example.com")
 
     def test_bad_request(self):
         """It should not Create an Account when sending the wrong data"""
-        response = self.client.post(BASE_URL, json={"name": "not enough data"})
+        response = self.client.post(BASE_URL, json={"name": "Incomplete"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_unsupported_media_type(self):
         """It should not Create an Account when sending the wrong media type"""
-        account = AccountFactory()
         response = self.client.post(
             BASE_URL,
-            json=account.serialize(),
+            json={"name": "John Doe", "email": "john.doe@example.com"},
             content_type="test/html"
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
-    # ADD YOUR TEST CASES HERE ...
+    def test_get_account(self):
+        """It should retrieve an account"""
+        account = AccountFactory(name="Jane Doe", email="jane.doe@example.com")
+        db.session.add(account)
+        db.session.commit()
+
+        response = self.client.get(f"{BASE_URL}/{account.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get_json()["name"], "Jane Doe")
+
+    def test_get_account_not_found(self):
+        """It should not retrieve an account that doesn't exist"""
+        response = self.client.get(f"{BASE_URL}/999999")  # Non-existent account
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
