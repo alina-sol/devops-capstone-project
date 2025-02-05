@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, request, jsonify, url_for, after_this_request
 from service.models import db, Account
 
 app = Flask(__name__)
@@ -43,6 +43,17 @@ def get_account(id):
     if account is None:
         return jsonify({"message": "Account not found"}), 404
     return jsonify(account.serialize()), 200
+
+@app.before_request
+def add_security_headers():
+    """Adds security headers to every response"""
+    @after_this_request
+    def apply_headers(response):
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -5,25 +5,32 @@ from service.models import db, Account
 from service.common import status  # HTTP status codes
 from service.routes import app
 from tests.factories import AccountFactory
+from service import talisman
+
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 
-BASE_URL = "/accounts"
+HTTPS_ENVIRON = {'wsgi.url_scheme': 'https'}
+
 
 
 class TestAccountService(TestCase):
     """Account Service Tests"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Run once before all tests"""
-        app.config["TESTING"] = True
-        app.config["DEBUG"] = False
-        app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
-        app.logger.setLevel(logging.CRITICAL)
-        db.create_all()
+   @classmethod
+        def setUpClass(cls):
+    """Run once before all tests"""
+    app.config["TESTING"] = True
+    app.config["DEBUG"] = False
+    app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
+    app.logger.setLevel(logging.CRITICAL)
+    db.create_all()
+
+    # Disable HTTPS enforcement for testing
+    talisman.force_https = False
+
 
     @classmethod
     def tearDownClass(cls):
@@ -104,3 +111,14 @@ class TestAccountService(TestCase):
         """It should not retrieve an account that doesn't exist"""
         response = self.client.get(f"{BASE_URL}/999999")  # Non-existent account
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_security_headers(self):
+    """It should include proper security headers"""
+    response = self.client.get("/", environ_overrides=HTTPS_ENVIRON)
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # Check security headers
+    self.assertEqual(response.headers.get("X-Frame-Options"), "SAMEORIGIN")
+    self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
+    self.assertEqual(response.headers.get("Content-Security-Policy"), "default-src 'self'; object-src 'none'")
+    self.assertEqual(response.headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
